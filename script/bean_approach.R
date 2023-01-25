@@ -74,6 +74,7 @@ converted_load_para_mean <- do.call(rbind,
 )
 
 
+
 converted_load_para_q_75 <- do.call(rbind,
   future_lapply(ls_df,
     FUN = tree_gev_fitting,
@@ -87,8 +88,32 @@ converted_load_para_q_75 <- do.call(rbind,
   )
 )
 
+
+
 tictoc::toc()
 
 
 ## Shut down parallel workers
 future::plan("sequential")
+
+
+
+# append station id
+ID <- rownames(converted_load_para_mean)
+converted_load_para_mean <- cbind(ID, converted_load_para_mean)
+
+
+# append station id
+ID <- rownames(converted_load_para_q_75)
+converted_load_para_q_75 <- cbind(ID, converted_load_para_q_75)
+
+
+
+#save output
+save(converted_load_para_mean, file = "data-raw/RObject/converted_load_para_mean.RData")
+save(converted_load_para_q_75, file = "data-raw/RObject/converted_load_para_q_75.RData")
+
+
+
+
+
