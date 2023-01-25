@@ -40,10 +40,6 @@ tree_gev_fitting <- function(data, n_trees, probs = 0.75, mean_para = TRUE) {
     result <- colQuantiles(gev_params_matrix, probs = probs, na.rm = TRUE)
   }
 
-  # append station id
-  ID <- rownames(result)
-  result <- cbind(ID, result)
-
 
   return(result)
 }
