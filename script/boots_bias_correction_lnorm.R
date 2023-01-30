@@ -2,23 +2,21 @@
 # ===========================================================================#
 # load libraries and functions
 # ===========================================================================#
-library(ranger) # Load ranger library for Random Forest model
-library(Metrics) # Load Metrics library for calculating performance metrics
-library(tidyverse) # Load tidyverse library for data manipulation
-library(ggplot2)  # Load ggplot2  for visualization 
-library(reshape2)# Loadreshape2  for visualization and data manipulation
+library(ranger)
+library(Metrics)
+library(tidyverse)
+library(ggplot2)
+library(reshape2)
+library(fitdistrplus)
 
-
-#Source the R file
-source(file = "R/fit_distribution.R") 
+# Source the R file
+source(file = "R/fit_lnorm.R")
 source(file = "R/make_predictions.R")
 source(file = "R/combine_dt_to_rf_object.R")
 
 # ===========================================================================#
 # load data
 # ===========================================================================#
-# Generate example data
-set.seed(1)
 
 df <- read.csv("data-raw/data.csv") # Read the data from data.csv file
 
@@ -36,12 +34,6 @@ df <- df %>%
     RATIO = maxRatio # Rename the column 'maxRatio' to 'RATIO'
   )
 
-
-# train <- df %>%
-#   dplyr::filter(data == "Train")
-#
-# test <- df %>%
-#   dplyr::filter(data == "Test")
 
 
 
@@ -86,13 +78,13 @@ for (i in 1:n_iter) {
   # Perform residual bootstrapping
   # Sample from the residuals with replacement
   bootstrap_samples <- matrix(sample(residuals,
-                                     replace = TRUE,
-                                     size = length(residuals)
+    replace = TRUE,
+    size = length(residuals)
   ), ncol = 1)
-  
+
   # Add the bootstrapped residuals to the full data predictions
   y_bootstrap <- full_data_pred + bootstrap_samples
-  
+
   # Fit a decision tree model using the bootstrapped data
   rf_temp <- ranger(
     y_bootstrap ~ logSNWD + SMONTH + D2C + logPPTWT + MCMT +
@@ -100,7 +92,7 @@ for (i in 1:n_iter) {
     data = x_data,
     importance = "impurity", num.trees = 1 # Fit a single decision tree
   )
-  
+
   bootstrap_trees[[i]] <- rf_temp # Store the decision tree in the list
 }
 
@@ -114,44 +106,43 @@ for (i in 1:n_iter) {
 # ===========================================================================#
 
 # Create the random forest object
-rf_object <- combine_dt_to_rf_object(bootstrap_trees) 
+rf_object <- combine_dt_to_rf_object(bootstrap_trees)
 
 
 
 # Make predictions using the random forest
-re_pred <- make_predictions(rf_object, x_data) 
+re_pred <- make_predictions(rf_object, x_data)
 
 
 # calculate the mean squared error for the predictions
-Metrics::mse(df$RATIO, full_data_pred) 
+Metrics::mse(df$RATIO, full_data_pred)
 
 # calculate the mean squared error for the bias corrected predictions
 Metrics::mse(df$RATIO, 2 * full_data_pred - re_pred)
 
 # calculate the relative improvement in MSE
 (Metrics::mse(df$RATIO, 2 * full_data_pred - re_pred) -
-    Metrics::mse(df$RATIO, full_data_pred)) / Metrics::mse(df$RATIO, full_data_pred) 
-
-
-# calculate the mean absolute error for the predictions
-Metrics::mae(df$RATIO, full_data_pred) 
-
-# calculate the mean absolute error for the bias corrected predictions
-Metrics::mae(df$RATIO, 2 * full_data_pred - re_pred) 
+  Metrics::mse(df$RATIO, full_data_pred)) / Metrics::mse(df$RATIO, full_data_pred)
 
 
 
-# Create scatter plot 
+
+
+# Create scatter plot
 par(mfrow = c(1, 2))
 
 # plot the full data predictions
-plot(df$RATIO, full_data_pred, xlim = c(0, 1), ylim = c(0, 1), 
-     main = "Original ratio vs predicted ratio") 
+plot(df$RATIO, full_data_pred,
+  xlim = c(0, 1), ylim = c(0, 1),
+  main = "Original ratio vs predicted ratio"
+)
 abline(a = 0, b = 1, col = "blue") # add a line with y=x
 
 
-plot(df$RATIO, 2 * full_data_pred - re_pred, xlim = c(0, 1), ylim = c(0, 1),
-     main = "Original ratio vs inflated residual bootstrap RF ratio")
+plot(df$RATIO, 2 * full_data_pred - re_pred,
+  xlim = c(0, 1), ylim = c(0, 1),
+  main = "Original ratio vs inflated residual bootstrap RF ratio"
+)
 # plot the bias corrected predictions
 abline(a = 0, b = 1, col = "blue") # add a line with y=x
 
@@ -161,7 +152,7 @@ abline(a = 0, b = 1, col = "blue") # add a line with y=x
 df <- df %>%
   mutate(
     bias_corrected_SWE = (2 * full_data_pred - re_pred) * maxv_SNWD,
-    bias_uncorrected_SWE = full_data_pred  * maxv_SNWD
+    bias_uncorrected_SWE = full_data_pred * maxv_SNWD
   )
 
 
@@ -178,11 +169,11 @@ df <- df %>%
 # ===========================================================================#
 # Filter stations with annual max more than 30
 id <- df %>%
-  count(ID) %>%
-  filter(n >= 30)
+  dplyr::count(ID) %>%
+  dplyr::filter(n >= 30)
 
 df <- df %>%
-  filter(ID %in% id$ID)
+  dplyr::filter(ID %in% id$ID)
 
 
 
@@ -194,59 +185,56 @@ ls_df <- df %>%
 
 
 # Fit distribution of maxv_WESD and bias corrected and uncorrected SWE values
-direct_load_para <- do.call(rbind, lapply(ls_df,
-  FUN = fit_distribution,
-  "maxv_WESD",
-  dist_name = "GEV"
-))
-
-uncorrected_con_load_para <- do.call(rbind, lapply(ls_df,
-  FUN = fit_distribution,
-  "bias_uncorrected_SWE",
-  dist_name = "GEV"
+direct_load_para_lnorm <- do.call(rbind, lapply(ls_df,
+  FUN = fit_lnorm,
+  "maxv_WESD"
 )) %>%
-  rename(
-    UC_LOC_PRED = LOC_PRED,
-    UC_SCALE_PRED = SCALE_PRED,
-    UC_SHAPE_PRED = SHAPE_PRED
+  mutate(
+    mean = exp(meanlog),
+    sd = exp(sdlog)
+  )
+
+uncorrected_con_load_para_lnorm <- do.call(rbind, lapply(ls_df,
+  FUN = fit_lnorm,
+  "bias_uncorrected_SWE"
+)) %>%
+  mutate(
+    uc_mean = exp(meanlog),
+    uc_sd = exp(sdlog)
   )
 
 
 
-corrected_con_load_para <- do.call(rbind, lapply(ls_df,
-  FUN = fit_distribution,
-  "bias_corrected_SWE",
-  dist_name = "GEV"
+corrected_con_load_para_lnorm <- do.call(rbind, lapply(ls_df,
+  FUN = fit_lnorm,
+  "bias_corrected_SWE"
 )) %>%
-  rename(
-    C_LOC_PRED = LOC_PRED,
-    C_SCALE_PRED = SCALE_PRED,
-    C_SHAPE_PRED = SHAPE_PRED
+  mutate(
+    c_mean = exp(meanlog),
+    c_sd = exp(sdlog)
   )
 
 
 
 # combine distr. para into one dataframe
-comb_para <- inner_join(direct_load_para, corrected_con_load_para, by = c("ID"))
-comb_para <- inner_join(comb_para, uncorrected_con_load_para, by = c("ID"))
+comb_para_lnorm <- inner_join(direct_load_para_lnorm, corrected_con_load_para_lnorm, by = c("ID"))
+comb_para_lnorm <- inner_join(comb_para_lnorm, uncorrected_con_load_para_lnorm, by = c("ID"))
 
-comb_para <- comb_para %>%
+comb_para_lnorm <- comb_para_lnorm %>%
   mutate(
-    ratio_loc_uc = UC_LOC_PRED / LOC_PRED,
-    ratio_scale_uc = UC_SCALE_PRED / SCALE_PRED,
-    ratio_shape_uc = UC_SHAPE_PRED / SHAPE_PRED,
-    ratio_loc_c = C_LOC_PRED / LOC_PRED,
-    ratio_scale_c = C_SCALE_PRED / SCALE_PRED,
-    ratio_shape_c = C_SHAPE_PRED / SHAPE_PRED
+    ratio_mean_uc = uc_mean / mean,
+    ratio_sd_uc = uc_sd / sd,
+    ratio_mean_c = c_mean / mean,
+    ratio_sd_c = c_sd / sd
   )
 
 
 
 
-data_long <- comb_para %>% pivot_longer(
+data_long <- comb_para_lnorm %>% pivot_longer(
   cols = c(
-    "ratio_loc_uc", "ratio_scale_uc",
-    "ratio_shape_uc", "ratio_loc_c", "ratio_scale_c", "ratio_shape_c"
+    "ratio_mean_uc", "ratio_sd_uc",
+    "ratio_mean_c", "ratio_sd_c"
   ),
   names_to = "variable", values_to = "value"
 )
@@ -254,23 +242,19 @@ data_long <- comb_para %>% pivot_longer(
 
 data_long <- data_long %>%
   mutate(method = case_when(
-    variable == "ratio_loc_uc" ~ "uncorrected",
-    variable == "ratio_scale_uc" ~ "uncorrected",
-    variable == "ratio_shape_uc" ~ "uncorrected",
-    variable == "ratio_loc_c" ~ "corrected",
-    variable == "ratio_scale_c" ~ "corrected",
-    variable == "ratio_shape_c" ~ "corrected"
+    variable == "ratio_mean_uc" ~ "uncorrected",
+    variable == "ratio_sd_uc" ~ "uncorrected",
+    variable == "ratio_mean_c" ~ "corrected",
+    variable == "ratio_sd_c" ~ "corrected"
   ))
 
 
 data_long <- data_long %>%
   mutate(variable = case_when(
-    variable == "ratio_loc_uc" ~ "loc",
-    variable == "ratio_scale_uc" ~ "scale",
-    variable == "ratio_shape_uc" ~ "shape",
-    variable == "ratio_loc_c" ~ "loc",
-    variable == "ratio_scale_c" ~ "scale",
-    variable == "ratio_shape_c" ~ "shape"
+    variable == "ratio_mean_uc" ~ "mean",
+    variable == "ratio_mean_c" ~ "mean",
+    variable == "ratio_sd_uc" ~ "sd",
+    variable == "ratio_sd_c" ~ "sd"
   ))
 
 # ===========================================================================#
@@ -282,7 +266,5 @@ ggplot(data_long, aes(x = variable, y = value, fill = variable)) +
   geom_boxplot() +
   geom_hline(yintercept = 1, color = "red", linetype = "dashed") +
   facet_wrap(~method, ncol = 2) +
-  ylim(c(-2,2))+
+  ylim(c(0.6, 1.6)) +
   ggtitle("Boxplot comparing the relative parameter ratio of direct load vs converted load(using inflated residual bootstrapping)")
-
-

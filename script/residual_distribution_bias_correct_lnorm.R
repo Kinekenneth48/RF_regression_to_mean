@@ -10,7 +10,7 @@ library(ggplot2) # load the ggplot2 library for data visualization
 library(reshape2) # load the reshape2 library for reshaping data
 
 # Source the R file
-source(file = "R/fit_distribution.R") #  for fitting distributions
+source(file = "R/fit_lnorm.R") #  for fitting distributions
 source(file = "R/make_predictions.R") # for making predictions
 source(file = "R/combine_dt_to_rf_object.R") #  for combining decision trees into RF objects
 
@@ -62,10 +62,10 @@ residuals <- residuals %>%
 
 
 # get  the 25th percentile of the response values
-p25_response <- quantile(df$RATIO, probs = 0.25)
+p25_response <- quantile(df$RATIO, probs = 0.2)
 
 # get  the 75th percentile of the response values
-p75_response <- quantile(df$RATIO, probs = 0.75)
+p75_response <- quantile(df$RATIO, probs = 0.80)
 
 
 # Add extreme_id column
@@ -124,6 +124,7 @@ higher_extreme_residuals <- residuals %>%
   filter(unique_id %in% full_data_pred_higher$unique_id)
 
 hist(higher_extreme_residuals$residuals)
+
 
 
 
@@ -230,12 +231,16 @@ Metrics::mse(df$RATIO, 2 * df$rf_pred - re_pred)
   Metrics::mse(df$RATIO, df$rf_pred)) / Metrics::mse(df$RATIO, df$rf_pred)
 
 par(mfrow = c(1, 2))
-plot(df$RATIO, df$rf_pred, xlim = c(0, 1), ylim = c(0, 1), 
-     main = "Original ratio vs predicted ratio")
+plot(df$RATIO, df$rf_pred,
+  xlim = c(0, 1), ylim = c(0, 1),
+  main = "Original ratio vs predicted ratio"
+)
 abline(a = 0, b = 1, col = "blue")
 
-plot(df$RATIO, 2 * df$rf_pred - re_pred, xlim = c(0, 1), ylim = c(0, 1),
-     main = "Original ratio vs distributed inflated residual bootstrap RF ratio")
+plot(df$RATIO, 2 * df$rf_pred - re_pred,
+  xlim = c(0, 1), ylim = c(0, 1),
+  main = "Original ratio vs distributed inflated residual bootstrap RF ratio"
+)
 abline(a = 0, b = 1, col = "blue")
 
 
@@ -260,13 +265,13 @@ df <- df %>%
 # ===========================================================================#
 # get stations with annual max more than 30
 id <- df %>%
-  count(ID) %>%
-  filter(n >= 30)
+  dplyr::count(ID) %>%
+  dplyr::filter(n >= 30)
 
 
 
 df <- df %>%
-  filter(ID %in% id$ID)
+  dplyr::filter(ID %in% id$ID)
 
 
 # Convert dataframe of data into list by ID
@@ -276,34 +281,34 @@ ls_df <- df %>%
   stats::setNames(., unique(df$ID))
 
 direct_load_para <- do.call(rbind, lapply(ls_df,
-  FUN = fit_distribution,
-  "maxv_WESD",
-  dist_name = "GEV"
-))
+  FUN = fit_lnorm,
+  "maxv_WESD"
+)) %>%
+  dplyr::mutate(
+    mean = exp(meanlog),
+    sd = exp(sdlog)
+  )
 
 uncorrected_con_load_para <- do.call(rbind, lapply(ls_df,
-  FUN = fit_distribution,
-  "bias_uncorrected_SWE",
-  dist_name = "GEV"
+  FUN = fit_lnorm,
+  "bias_uncorrected_SWE"
 )) %>%
-  rename(
-    UC_LOC_PRED = LOC_PRED,
-    UC_SCALE_PRED = SCALE_PRED,
-    UC_SHAPE_PRED = SHAPE_PRED
+  dplyr::mutate(
+    uc_mean = exp(meanlog),
+    uc_sd = exp(sdlog)
   )
 
 
 
 corrected_con_load_para <- do.call(rbind, lapply(ls_df,
-  FUN = fit_distribution,
-  "bias_corrected_SWE",
-  dist_name = "GEV"
+  FUN = fit_lnorm,
+  "bias_corrected_SWE"
 )) %>%
-  rename(
-    C_LOC_PRED = LOC_PRED,
-    C_SCALE_PRED = SCALE_PRED,
-    C_SHAPE_PRED = SHAPE_PRED
+  dplyr::mutate(
+    c_mean = exp(meanlog),
+    c_sd = exp(sdlog)
   )
+
 
 
 
@@ -312,12 +317,10 @@ comb_para <- inner_join(comb_para, uncorrected_con_load_para, by = c("ID"))
 
 comb_para <- comb_para %>%
   mutate(
-    ratio_loc_uc = UC_LOC_PRED / LOC_PRED,
-    ratio_scale_uc = UC_SCALE_PRED / SCALE_PRED,
-    ratio_shape_uc = UC_SHAPE_PRED / SHAPE_PRED,
-    ratio_loc_c = C_LOC_PRED / LOC_PRED,
-    ratio_scale_c = C_SCALE_PRED / SCALE_PRED,
-    ratio_shape_c = C_SHAPE_PRED / SHAPE_PRED
+    ratio_mean_uc = uc_mean / mean,
+    ratio_sd_uc = uc_sd / sd,
+    ratio_mean_c = c_mean / mean,
+    ratio_sd_c = c_sd / sd
   )
 
 
@@ -325,8 +328,8 @@ comb_para <- comb_para %>%
 
 data_long <- comb_para %>% pivot_longer(
   cols = c(
-    "ratio_loc_uc", "ratio_scale_uc",
-    "ratio_shape_uc", "ratio_loc_c", "ratio_scale_c", "ratio_shape_c"
+    "ratio_mean_uc", "ratio_sd_uc",
+    "ratio_mean_c", "ratio_sd_c"
   ),
   names_to = "variable", values_to = "value"
 )
@@ -334,23 +337,19 @@ data_long <- comb_para %>% pivot_longer(
 
 data_long <- data_long %>%
   mutate(method = case_when(
-    variable == "ratio_loc_uc" ~ "uncorrected",
-    variable == "ratio_scale_uc" ~ "uncorrected",
-    variable == "ratio_shape_uc" ~ "uncorrected",
-    variable == "ratio_loc_c" ~ "corrected",
-    variable == "ratio_scale_c" ~ "corrected",
-    variable == "ratio_shape_c" ~ "corrected"
+    variable == "ratio_mean_uc" ~ "uncorrected",
+    variable == "ratio_sd_uc" ~ "uncorrected",
+    variable == "ratio_mean_c" ~ "corrected",
+    variable == "ratio_sd_c" ~ "corrected"
   ))
 
 
 data_long <- data_long %>%
   mutate(variable = case_when(
-    variable == "ratio_loc_uc" ~ "loc",
-    variable == "ratio_scale_uc" ~ "scale",
-    variable == "ratio_shape_uc" ~ "shape",
-    variable == "ratio_loc_c" ~ "loc",
-    variable == "ratio_scale_c" ~ "scale",
-    variable == "ratio_shape_c" ~ "shape"
+    variable == "ratio_mean_uc" ~ "mean",
+    variable == "ratio_mean_c" ~ "mean",
+    variable == "ratio_sd_uc" ~ "sd",
+    variable == "ratio_sd_c" ~ "sd"
   ))
 
 
@@ -359,6 +358,5 @@ ggplot(data_long, aes(x = variable, y = value, fill = variable)) +
   geom_boxplot() +
   geom_hline(yintercept = 1, color = "red", linetype = "dashed") +
   facet_wrap(~method, ncol = 2) +
-  ylim(c(-2, 2))+
+  ylim(c(0.6, 1.6)) +
   ggtitle("Boxplot comparing the relative parameter ratio of direct load vs converted load(using a distributed inflated residual bootstrapping)")
-
