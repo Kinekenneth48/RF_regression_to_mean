@@ -16,7 +16,8 @@ tree_lnorm_fitting <- function(data, n_trees, probs = 0.75, mean_para = TRUE) {
     tree_model <- ranger(
       RATIO ~ logSNWD + SMONTH + D2C + logPPTWT + MCMT + MWMT +
         TD + ELEV,
-      data = data, importance = "impurity", num.trees = 1
+      data = data, importance = "impurity", num.trees = 1,
+      min.node.size = 1
     )
 
     # make predictions

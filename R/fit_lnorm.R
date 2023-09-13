@@ -1,11 +1,13 @@
 
-fit_lnorm <- function(df, column) {
+fit_lnorm <- function(df, column,...) {
   require(fitdistrplus)
   
+  data = as.numeric(df[[column]])
+  
   fit <- fitdistrplus::fitdist(
-    data = df[[column]], distr = "lnorm",
+    data = data, distr = "lnorm",
     start = list(
-      meanlog = mean(log(df[[column]])), sdlog = stats::sd(log(df[[column]]))
+      meanlog = mean(log(data)), sdlog = stats::sd(log(data))
     ),
     method = "mle"
   )
