@@ -63,7 +63,7 @@ residuals <- df$RATIO - rf1$predictions
 
 # full data prediction
 x_data <- df %>%
-  select(
+  dplyr::select(
     logSNWD, SMONTH, D2C, logPPTWT, MCMT, MWMT,
     TD, ELEV
   )

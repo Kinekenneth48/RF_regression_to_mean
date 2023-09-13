@@ -1,5 +1,3 @@
-
-
 ##############################################################################
 # STEP 0: initial set up
 ##############################################################################
@@ -16,7 +14,9 @@ library(future.apply)
 # Source the R file
 source(file = "R/fit_lnorm.R")
 source(file = "R/fit_distribution.R")
-source(file = "R/tree_lnorm_fitting.R")
+source(file = "R/constrained_tree_lnorm_fitting.R")
+source(file = "R/duplicate_row.R")
+source(file = "R/constrained_boot_fitting.R")
 
 # ===========================================================================#
 # load data and preprocess
@@ -37,25 +37,7 @@ df <- df %>%
   )
 
 
-# ===========================================================================#
-## Fit initial random forest model
-# ===========================================================================#
-
-rf1 <- ranger(
-  RATIO ~ logSNWD + SMONTH + D2C + logPPTWT + MCMT + MWMT +
-    TD + ELEV, # Define the predictor variables and target variable
-  data = df, importance = "impurity",
-  num.trees = 100, keep.inbag = TRUE # Fit a random forest model with 100 trees and save in-bag observations
-)
-
-# make ratio prediction
-df$full_pred <- predict(rf1, df)$predictions
-
-#compute SWE from ratio prediction
-df = df %>%
-  mutate(swe_rf = full_pred * maxv_SNWD)
-
-
+hist(df$RATIO)
 
 
 
@@ -79,6 +61,25 @@ ls_df <- df %>%
 
 
 
+# ===========================================================================#
+# get LNORM parameters for direct loads
+# ===========================================================================#
+
+direct_load_para_lnorm <- do.call(rbind, lapply(ls_df,
+  FUN = fit_lnorm,
+  "maxv_WESD"
+))
+
+
+# save data
+save(direct_load_para_lnorm,
+  file = "data-raw/RObject/direct_load_para_lnorm.RData"
+)
+
+
+
+
+
 ##############################################################################
 # STEP 1: apply Bean's approach of accounting for variance from RF into
 #  distribution fitting
@@ -94,47 +95,71 @@ tictoc::tic()
 ## Run the analysis in parallel on the local computer
 future::plan("multisession", workers = 14)
 
+## Regardless of the future plan, the number of workers, and
+## where they are, the random numbers produced are identical
+set.seed(48879)
+
+converted_load_para_mean_lnorm_const <- do.call(
+  rbind,
+  future_lapply(ls_df,
+    FUN = constrained_tree_lnorm_fitting,
+    n_trees = 200, lower.ratio = 0.2, higher.ratio = 0.5,
+    mean_para = TRUE, constrained_boot = TRUE,
+    future.scheduling = 2,
+    future.seed = TRUE,
+    future.globals = list(
+      constrained_boot_fitting = constrained_boot_fitting
+    ),
+    future.packages = c("fitdistrplus", "tidyverse", "matrixStats", "ranger")
+  )
+)
 
 converted_load_para_mean_lnorm <- do.call(
   rbind,
   future_lapply(ls_df,
-    FUN = tree_lnorm_fitting,
-    n_trees = 500,
-    mean_para = TRUE,
+    FUN = constrained_tree_lnorm_fitting,
+    n_trees = 200,
+    mean_para = TRUE, constrained_boot = FALSE,
     future.scheduling = 2,
     future.seed = TRUE,
+    future.globals = list(
+      constrained_boot_fitting = constrained_boot_fitting
+    ),
     future.packages = c("fitdistrplus", "tidyverse", "matrixStats", "ranger")
   )
 )
 
 
 
-converted_load_para_q_75_lnorm <- do.call(
+converted_load_para_q_90_lnorm_const <- do.call(
   rbind,
   future_lapply(ls_df,
-    FUN = tree_lnorm_fitting,
-    n_trees = 500,
-    probs = 0.75,
+    FUN = constrained_tree_lnorm_fitting,
+    n_trees = 200, lower.ratio = 0.2, higher.ratio = 0.5,
+    probs = 0.90, constrained_boot = TRUE,
     mean_para = FALSE,
     future.scheduling = 2,
     future.seed = TRUE,
-    future.globals = TRUE,
+    future.globals = list(
+      constrained_boot_fitting = constrained_boot_fitting
+    ),
     future.packages = c("fitdistrplus", "tidyverse", "matrixStats", "ranger")
   )
 )
-
 
 
 converted_load_para_q_90_lnorm <- do.call(
   rbind,
   future_lapply(ls_df,
-    FUN = tree_lnorm_fitting,
-    n_trees = 500,
-    probs = 0.90,
+    FUN = constrained_tree_lnorm_fitting,
+    n_trees = 200,
+    probs = 0.90, constrained_boot = FALSE,
     mean_para = FALSE,
     future.scheduling = 2,
     future.seed = TRUE,
-    future.globals = TRUE,
+    future.globals = list(
+      constrained_boot_fitting = constrained_boot_fitting
+    ),
     future.packages = c("fitdistrplus", "tidyverse", "matrixStats", "ranger")
   )
 )
@@ -147,78 +172,49 @@ future::plan("sequential")
 
 
 
+
+
 # append station id
+ID <- rownames(converted_load_para_mean_lnorm_const)
+converted_load_para_mean_lnorm_const <- cbind(ID, converted_load_para_mean_lnorm_const)
+
+
 ID <- rownames(converted_load_para_mean_lnorm)
 converted_load_para_mean_lnorm <- cbind(ID, converted_load_para_mean_lnorm)
 
 
-# append station id
-ID <- rownames(converted_load_para_q_75_lnorm)
-converted_load_para_q_75_lnorm <- cbind(ID, converted_load_para_q_75_lnorm)
+ID <- rownames(converted_load_para_q_90_lnorm_const)
+converted_load_para_q_90_lnorm_const <- cbind(ID, converted_load_para_q_90_lnorm_const)
 
-# append station id
 ID <- rownames(converted_load_para_q_90_lnorm)
 converted_load_para_q_90_lnorm <- cbind(ID, converted_load_para_q_90_lnorm)
 
-# save output
-save(converted_load_para_mean_lnorm, file = "data-raw/RObject/converted_load_para_mean_lnorm.RData")
-save(converted_load_para_q_75_lnorm, file = "data-raw/RObject/converted_load_para_q_75_lnorm.RData")
-save(converted_load_para_q_90_lnorm, file = "data-raw/RObject/converted_load_para_q_90_lnorm.RData")
 
 
 
 
+# save data
+save(converted_load_para_mean_lnorm_const,
+  file = "data-raw/RObject/converted_load_para_mean_lnorm_const.RData"
+)
 
-# ===========================================================================#
-# get LNORM parameters for direct loads
-# ===========================================================================#
+save(converted_load_para_mean_lnorm,
+  file = "data-raw/RObject/converted_load_para_mean_lnorm.RData"
+)
 
-direct_load_para_lnorm <- do.call(rbind, lapply(ls_df,
-  FUN = fit_lnorm,
-  "maxv_WESD"
-)) %>% mutate(mean = exp(meanlog), sd = exp(sdlog))
+save(converted_load_para_q_90_lnorm_const,
+  file = "data-raw/RObject/converted_load_para_q_90_lnorm_const.RData"
+)
 
-
-
-# save output
-save(direct_load_para_lnorm, file = "data-raw/RObject/direct_load_para_lnorm.RData")
-
-
-
-
-# ===========================================================================#
-# get LNORM parameters for RF predicted loads
-# ===========================================================================#
-
-rf_load_para_lnorm <- do.call(rbind, lapply(ls_df,
-                                                FUN = fit_lnorm,
-                                                "swe_rf"
-))
-
-
-
-# save output
-save(rf_load_para_lnorm, file = "data-raw/RObject/rf_load_para_lnorm.RData")
-
-
-
+save(converted_load_para_q_90_lnorm,
+  file = "data-raw/RObject/converted_load_para_q_90_lnorm.RData"
+)
 
 
 ##############################################################################
 # STEP 2: Compute relative parameter ratios for converted loads
 ##############################################################################
 
-
-# ===========================================================================#
-# load data and preprocessing
-# ===========================================================================#
-
-# load converted and direct load parameter data
-load("data-raw/RObject/direct_load_para_lnorm.RData")
-load("data-raw/RObject/rf_load_para_lnorm.RData")
-load("data-raw/RObject/converted_load_para_mean_lnorm.RData")
-load("data-raw/RObject/converted_load_para_q_75_lnorm.RData")
-load("data-raw/RObject/converted_load_para_q_90_lnorm.RData")
 
 
 # change class to dataframe
@@ -229,13 +225,20 @@ converted_load_para_mean_lnorm <- as.data.frame(converted_load_para_mean_lnorm) 
   ) %>%
   dplyr::select(ID, loc_mean, sd_mean)
 
-
-converted_load_para_q_75_lnorm <- as.data.frame(converted_load_para_q_75_lnorm) %>%
-  mutate(
-    loc_75 = exp(as.numeric(meanlog)),
-    sd_75 = exp(as.numeric(sdlog))
+converted_load_para_mean_lnorm_const <- as.data.frame(converted_load_para_mean_lnorm_const) %>%
+  dplyr::mutate(
+    loc_mean_const = exp(as.numeric(meanlog)),
+    sd_mean_const = exp(as.numeric(sdlog))
   ) %>%
-  dplyr::select(ID, loc_75, sd_75)
+  dplyr::select(ID, loc_mean_const, sd_mean_const)
+
+
+converted_load_para_q_90_lnorm_const <- as.data.frame(converted_load_para_q_90_lnorm_const) %>%
+  mutate(
+    loc_90_const = exp(as.numeric(meanlog)),
+    sd_90_const = exp(as.numeric(sdlog))
+  ) %>%
+  dplyr::select(ID, loc_90_const, sd_90_const)
 
 
 
@@ -255,12 +258,6 @@ direct_load_para_lnorm <- direct_load_para_lnorm %>%
   dplyr::select(ID, loc, sd)
 
 
-rf_load_para_lnorm <- rf_load_para_lnorm %>%
-  mutate(
-    loc_rf = exp(as.numeric(meanlog)),
-    sd_rf = exp(as.numeric(sdlog))
-  ) %>%
-  dplyr::select(ID, loc_rf, sd_rf)
 
 
 
@@ -271,22 +268,22 @@ rf_load_para_lnorm <- rf_load_para_lnorm %>%
 
 
 comb_para_bean_lnorm <- inner_join(
-  x = direct_load_para_lnorm, y = converted_load_para_q_90_lnorm,
+  x = direct_load_para_lnorm, y = converted_load_para_mean_lnorm,
   by = c("ID")
 )
 
 comb_para_bean_lnorm <- inner_join(
-  x = comb_para_bean_lnorm, y = converted_load_para_q_75_lnorm,
+  x = comb_para_bean_lnorm, y = converted_load_para_mean_lnorm_const,
   by = c("ID")
 )
 
 comb_para_bean_lnorm <- inner_join(
-  x = comb_para_bean_lnorm, y = converted_load_para_mean_lnorm,
+  x = comb_para_bean_lnorm, y = converted_load_para_q_90_lnorm_const,
   by = c("ID")
 )
 
 comb_para_bean_lnorm <- inner_join(
-  x = comb_para_bean_lnorm, y = rf_load_para_lnorm,
+  x = comb_para_bean_lnorm, y = converted_load_para_q_90_lnorm,
   by = c("ID")
 )
 
@@ -296,26 +293,27 @@ comb_para_bean_lnorm <- comb_para_bean_lnorm %>%
   mutate(
     ratio_loc_mean = loc_mean / loc,
     ratio_sd_mean = sd_mean / sd,
+    ratio_loc_mean_const = loc_mean_const / loc,
+    ratio_sd_mean_const = sd_mean_const / sd,
     ratio_loc_90 = loc_90 / loc,
     ratio_sd_90 = sd_90 / sd,
-    ratio_loc_75 = loc_75 / loc,
-    ratio_sd_75 = sd_75 / sd,
-    ratio_loc_rf = loc_rf / loc,
-    ratio_sd_rf = sd_rf / sd
+    ratio_loc_90_const = loc_90_const / loc,
+    ratio_sd_90_const = sd_90_const / sd
+
   )
 
 
 
-data_long_bean <- comb_para_bean_lnorm %>% 
+data_long_bean <- comb_para_bean_lnorm %>%
   pivot_longer(
-  cols = c(
-    "ratio_loc_mean", "ratio_sd_mean", 
-    "ratio_loc_90", "ratio_sd_90", 
-    "ratio_loc_75", "ratio_sd_75",
-    "ratio_loc_rf", "ratio_sd_rf"
-  ),
-  names_to = "variable", values_to = "value"
-)
+    cols = c(
+      "ratio_loc_mean", "ratio_sd_mean",
+      "ratio_loc_mean_const", "ratio_sd_mean_const",
+      "ratio_loc_90", "ratio_sd_90",
+      "ratio_loc_90_const", "ratio_sd_90_const"
+    ),
+    names_to = "variable", values_to = "value"
+  )
 
 
 
@@ -323,12 +321,12 @@ data_long_bean <- data_long_bean %>%
   mutate(method = case_when(
     variable == "ratio_loc_mean" ~ "mean of parameters",
     variable == "ratio_sd_mean" ~ "mean of parameters",
+    variable == "ratio_loc_mean_const" ~ "mean of parameters",
+    variable == "ratio_sd_mean_const" ~ "mean of parameters",
     variable == "ratio_loc_90" ~ "90p of parameters",
     variable == "ratio_sd_90" ~ "90p of parameters",
-    variable == "ratio_loc_75" ~ "75p of parameters",
-    variable == "ratio_sd_75" ~ "75p of parameters",
-    variable == "ratio_loc_rf" ~ "RF of parameters",
-    variable == "ratio_sd_rf" ~ "RF of parameters"
+    variable == "ratio_loc_90_const" ~ "90p of parameters",
+    variable == "ratio_sd_90_const" ~ "90p of parameters"
   ))
 
 
@@ -345,4 +343,5 @@ ggplot(data_long_bean, aes(x = variable, y = value, fill = variable)) +
   geom_hline(yintercept = 1, color = "red", linetype = "dashed") +
   facet_wrap(~method, ncol = 2) +
   ylim(c(0.6, 1.6)) +
-  ggtitle("Boxplot comparing the relative parameter ratio of direct load vs converted load(using Bean's method)")
+  ggtitle("Boxplot comparing the relative parameter ratio of direct load vs converted load
+          (using constrained bootstrapping vs unconstrained bootstrapping)")
