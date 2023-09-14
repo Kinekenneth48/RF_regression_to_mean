@@ -12,13 +12,13 @@ library(tidyverse)
 # =============================================================================#
 # load data
 # =============================================================================#
-load("data-raw/RObject/param_unadjusted_gaussian.RData")
-load("data-raw/RObject/param_actual_gaussian.RData")
-load("data-raw/RObject/param_adjusted_gaussian.RData")
+load("data-raw/RObject/param_unadjusted_gaussian_1k.RData")
+load("data-raw/RObject/param_actual_gaussian_1k.RData")
+load("data-raw/RObject/param_adjusted_gaussian_1k.RData")
 
-load("data-raw/RObject/param_unadjusted_runif.RData")
-load("data-raw/RObject/param_actual_runif.RData")
-load("data-raw/RObject/param_adjusted_runif.RData")
+load("data-raw/RObject/param_unadjusted_runif_1k.RData")
+load("data-raw/RObject/param_actual_runif_1k.RData")
+load("data-raw/RObject/param_adjusted_runif_1k.RData")
 
 
 
@@ -31,19 +31,19 @@ load("data-raw/RObject/param_adjusted_runif.RData")
 
 # convert to data frame
 
-param_unadjusted_gaussian <- as.data.frame(param_unadjusted_gaussian) %>%
+param_unadjusted_gaussian_1k <- as.data.frame(param_unadjusted_gaussian_1k) %>%
   dplyr::mutate(id = row_number()) %>%
   dplyr::rename(mean_unadjusted = mean, sd_unadjusted = sd) %>%
   dplyr::select(id, mean_unadjusted, sd_unadjusted)
 
 
-param_adjusted_gaussian <- as.data.frame(param_adjusted_gaussian) %>%
+param_adjusted_gaussian_1k <- as.data.frame(param_adjusted_gaussian_1k) %>%
   dplyr::mutate(id = row_number()) %>%
   dplyr::rename(mean_adjusted = mean, sd_adjusted = sd) %>%
   dplyr::select(id, mean_adjusted, sd_adjusted)
 
 
-param_actual_gaussian <- as.data.frame(param_actual_gaussian) %>%
+param_actual_gaussian_1k <- as.data.frame(param_actual_gaussian_1k) %>%
   dplyr::mutate(id = row_number()) %>%
   dplyr::select(id, mean, sd)
 
@@ -53,19 +53,19 @@ param_actual_gaussian <- as.data.frame(param_actual_gaussian) %>%
 # ===========================================================================#
 
 
-comb_para_gaussian <- inner_join(
-  x = param_actual_gaussian, y = param_adjusted_gaussian, by = c("id")
+comb_para_gaussian_1k <- inner_join(
+  x = param_actual_gaussian_1k, y = param_adjusted_gaussian_1k, by = c("id")
 )
 
-comb_para_gaussian <- inner_join(
-  x = comb_para_gaussian, y = param_unadjusted_gaussian, by = c("id")
+comb_para_gaussian_1k <- inner_join(
+  x = comb_para_gaussian_1k, y = param_unadjusted_gaussian_1k, by = c("id")
 )
 
 
 
 
 # create relative ratios
-comb_para_gaussian <- comb_para_gaussian %>%
+comb_para_gaussian_1k <- comb_para_gaussian_1k %>%
   dplyr::mutate(
     ratio_adjust_mean = mean_adjusted / mean,
     ratio_adjust_sd = sd_adjusted / sd,
@@ -76,7 +76,7 @@ comb_para_gaussian <- comb_para_gaussian %>%
 
 
 
-data_long_g <- comb_para_gaussian %>%
+data_long_g <- comb_para_gaussian_1k %>%
   pivot_longer(
     cols = c(
       "ratio_adjust_mean", "ratio_adjust_sd", "ratio_unadjust_mean",
@@ -118,19 +118,19 @@ data_long_g <- data_long_g %>%
 
 # convert to data frame
 
-param_unadjusted_runif <- as.data.frame(param_unadjusted_runif) %>%
+param_unadjusted_runif_1k <- as.data.frame(param_unadjusted_runif_1k) %>%
   dplyr::mutate(id = row_number()) %>%
   dplyr::rename(mean_unadjusted = mean, sd_unadjusted = sd) %>%
   dplyr::select(id, mean_unadjusted, sd_unadjusted)
 
 
-param_adjusted_runif <- as.data.frame(param_adjusted_runif) %>%
+param_adjusted_runif_1k <- as.data.frame(param_adjusted_runif_1k) %>%
   dplyr::mutate(id = row_number()) %>%
   dplyr::rename(mean_adjusted = mean, sd_adjusted = sd) %>%
   dplyr::select(id, mean_adjusted, sd_adjusted)
 
 
-param_actual_runif <- as.data.frame(param_actual_runif) %>%
+param_actual_runif_1k <- as.data.frame(param_actual_runif_1k) %>%
   dplyr::mutate(id = row_number()) %>%
   dplyr::select(id, mean, sd)
 
@@ -140,18 +140,18 @@ param_actual_runif <- as.data.frame(param_actual_runif) %>%
 # ===========================================================================#
 
 
-comb_para_runif <- inner_join(
-  x = param_actual_runif, y = param_adjusted_runif, by = c("id")
+comb_para_runif_1k <- inner_join(
+  x = param_actual_runif_1k, y = param_adjusted_runif_1k, by = c("id")
 )
 
-comb_para_runif <- inner_join(
-  x = comb_para_runif, y = param_unadjusted_runif, by = c("id")
+comb_para_runif_1k <- inner_join(
+  x = comb_para_runif_1k, y = param_unadjusted_runif_1k, by = c("id")
 )
 
 
 
 # create relative ratios
-comb_para_runif <- comb_para_runif %>%
+comb_para_runif_1k <- comb_para_runif_1k %>%
   dplyr::mutate(
     ratio_adjust_mean = mean_adjusted / mean,
     ratio_adjust_sd = sd_adjusted / sd,
@@ -162,7 +162,7 @@ comb_para_runif <- comb_para_runif %>%
 
 
 
-data_long_u <- comb_para_runif %>%
+data_long_u <- comb_para_runif_1k %>%
   pivot_longer(
     cols = c(
       "ratio_adjust_mean", "ratio_adjust_sd", "ratio_unadjust_mean",
@@ -210,7 +210,7 @@ levels(comb_df$Method)
 
 # re-order factor levels
 comb_df$Method <- factor(comb_df$Method,
-  levels = c("Unadjusted Parameters", "Adjusted Parameters")
+                         levels = c("Unadjusted Parameters", "Adjusted Parameters")
 )
 
 

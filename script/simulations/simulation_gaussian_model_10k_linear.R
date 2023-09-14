@@ -22,15 +22,15 @@ source("R/simulate_gaussian_data.R")
 bootstraps <- 200
 
 # Initialize a matrix to store the parameters
-param_adjusted_gaussian <- matrix(nrow = bootstraps, ncol = 2)
-colnames(param_adjusted_gaussian) <- c("mean", "sd")
+param_adjusted_gaussian_10k <- matrix(nrow = bootstraps, ncol = 2)
+colnames(param_adjusted_gaussian_10k) <- c("mean", "sd")
 
 
-param_actual_gaussian <- matrix(nrow = bootstraps, ncol = 2)
-colnames(param_actual_gaussian) <- c("mean", "sd")
+param_actual_gaussian_10k <- matrix(nrow = bootstraps, ncol = 2)
+colnames(param_actual_gaussian_10k) <- c("mean", "sd")
 
-param_unadjusted_gaussian <- matrix(nrow = bootstraps, ncol = 2)
-colnames(param_unadjusted_gaussian) <- c("mean", "sd")
+param_unadjusted_gaussian_10k <- matrix(nrow = bootstraps, ncol = 2)
+colnames(param_unadjusted_gaussian_10k) <- c("mean", "sd")
 
 
 for (i in 1:bootstraps) {
@@ -94,7 +94,7 @@ for (i in 1:bootstraps) {
   # get adjusted parameter
   # =============================================================================#
 
-  param_adjusted_gaussian[i, ] <- distfixer::predict_param(
+  param_adjusted_gaussian_10k[i, ] <- distfixer::predict_param(
     test_data = test_data, direct_label = "y", param_adjust = "sd",
     fitted_model = model, mean = mean, sd = sd, distr = "norm",
     label_convert = FALSE, all_missing = TRUE, percentile = p
@@ -104,7 +104,7 @@ for (i in 1:bootstraps) {
   # get actual parameter
   # =============================================================================#
 
-  param_actual_gaussian[i, ] <- fitdistrplus::fitdist(
+  param_actual_gaussian_10k[i, ] <- fitdistrplus::fitdist(
     data = test_data$y,
     distr = "norm"
   )[["estimate"]]
@@ -115,7 +115,7 @@ for (i in 1:bootstraps) {
   # =============================================================================#
   pred_y <- predict(model, data = test_data)
 
-  param_unadjusted_gaussian[i, ] <- fitdistrplus::fitdist(
+  param_unadjusted_gaussian_10k[i, ] <- fitdistrplus::fitdist(
     data = pred_y,
     distr = "norm"
   )[["estimate"]]
@@ -125,9 +125,9 @@ for (i in 1:bootstraps) {
 # save data for use later
 # =============================================================================#
 
-save(param_unadjusted_gaussian, file = "data-raw/RObject/param_unadjusted_gaussian.RData")
-save(param_actual_gaussian, file = "data-raw/RObject/param_actual_gaussian.RData")
-save(param_adjusted_gaussian, file = "data-raw/RObject/param_adjusted_gaussian.RData")
+save(param_unadjusted_gaussian_10k, file = "data-raw/RObject/param_unadjusted_gaussian_10k.RData")
+save(param_actual_gaussian_10k, file = "data-raw/RObject/param_actual_gaussian_10k.RData")
+save(param_adjusted_gaussian_10k, file = "data-raw/RObject/param_adjusted_gaussian_10k.RData")
 
 
 
@@ -135,27 +135,27 @@ save(param_adjusted_gaussian, file = "data-raw/RObject/param_adjusted_gaussian.R
 # STEP 2: Create a graph to display the bias correction impact
 ##############################################################################
 
-load("data-raw/RObject/param_unadjusted_gaussian.RData")
-load("data-raw/RObject/param_actual_gaussian.RData")
-load("data-raw/RObject/param_adjusted_gaussian.RData")
+load("data-raw/RObject/param_unadjusted_gaussian_10k.RData")
+load("data-raw/RObject/param_actual_gaussian_10k.RData")
+load("data-raw/RObject/param_adjusted_gaussian_10k.RData")
 
 
 
 # convert to data frame
 
-param_unadjusted_gaussian <- as.data.frame(param_unadjusted_gaussian) %>%
+param_unadjusted_gaussian_10k <- as.data.frame(param_unadjusted_gaussian_10k) %>%
   dplyr::mutate(id = row_number()) %>%
   dplyr::rename(mean_unadjusted = mean, sd_unadjusted = sd) %>%
   dplyr::select(id, mean_unadjusted, sd_unadjusted)
 
 
-param_adjusted_gaussian <- as.data.frame(param_adjusted_gaussian) %>%
+param_adjusted_gaussian_10k <- as.data.frame(param_adjusted_gaussian_10k) %>%
   dplyr::mutate(id = row_number()) %>%
   dplyr::rename(mean_adjusted = mean, sd_adjusted = sd) %>%
   dplyr::select(id, mean_adjusted, sd_adjusted)
 
 
-param_actual_gaussian <- as.data.frame(param_actual_gaussian) %>%
+param_actual_gaussian_10k <- as.data.frame(param_actual_gaussian_10k) %>%
   dplyr::mutate(id = row_number()) %>%
   dplyr::select(id, mean, sd)
 
@@ -165,12 +165,12 @@ param_actual_gaussian <- as.data.frame(param_actual_gaussian) %>%
 # ===========================================================================#
 
 
-comb_para_gaussian <- inner_join(
-  x = param_actual_gaussian, y = param_adjusted_gaussian, by = c("id")
+comb_para_gaussian_10k <- inner_join(
+  x = param_actual_gaussian_10k, y = param_adjusted_gaussian_10k, by = c("id")
 )
 
-comb_para_gaussian <- inner_join(
-  x = comb_para_gaussian, y = param_unadjusted_gaussian, by = c("id")
+comb_para_gaussian_10k <- inner_join(
+  x = comb_para_gaussian_10k, y = param_unadjusted_gaussian_10k, by = c("id")
 )
 
 
@@ -193,7 +193,7 @@ comb_para_gaussian <- inner_join(
 
 
 # create relative ratios
-comb_para_gaussian <- comb_para_gaussian %>%
+comb_para_gaussian_10k <- comb_para_gaussian_10k %>%
   dplyr::mutate(
     ratio_adjust_mean = mean_adjusted / mean,
     ratio_adjust_sd = sd_adjusted / sd,
@@ -202,28 +202,28 @@ comb_para_gaussian <- comb_para_gaussian %>%
   )
 
 
-comb_para_gaussian <- comb_para_gaussian %>%
+comb_para_gaussian_10k <- comb_para_gaussian_10k %>%
   dplyr::mutate(
     bias_mean_adj = mean(ratio_adjust_mean),
     bias_sd_adj = mean(ratio_adjust_sd),
     bias_mean_unadj = mean(ratio_unadjust_mean),
     bias_sd_unadj = mean(ratio_unadjust_sd),
-    cov_adjust_mean = (sd(ratio_adjust_mean)/bias_mean_adj)*100,
-    cov_adjust_sd = (sd(ratio_adjust_sd)/bias_sd_adj)*100,
-    cov_unadjust_mean = (sd(ratio_unadjust_mean)/bias_mean_unadj)*100,
-    cov_unadjust_sd = (sd(ratio_unadjust_sd)/bias_sd_unadj)*100
+    cov_adjust_mean = (sd(ratio_adjust_mean)/bias_mean_adj),
+    cov_adjust_sd = (sd(ratio_adjust_sd)/bias_sd_adj),
+    cov_unadjust_mean = (sd(ratio_unadjust_mean)/bias_mean_unadj),
+    cov_unadjust_sd = (sd(ratio_unadjust_sd)/bias_sd_unadj)
   )
 
 
 
 # Calculate the mean of each column
-column_means <- colMeans(comb_para_gaussian)
+column_means <- colMeans(comb_para_gaussian_10k)
 
 # Convert the named vector to a dataframe and transpose it
 column_means_df <- as.data.frame(t(column_means))
 
 
-data_long <- comb_para_gaussian %>%
+data_long <- comb_para_gaussian_10k %>%
   pivot_longer(
     cols = c(
       "ratio_adjust_mean", "ratio_adjust_sd", "ratio_unadjust_mean",
